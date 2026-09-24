@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HeartLens</title>
+  <meta name="description" content="Decode the connection. Paste a profile and conversation to understand the vibe before you text." />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="hero">
+    <h1>HeartLens</h1>
+    <p class="tagline">Decode the connection.</p>
+  </header>
+
+  <main>
+    <section class="card intro">
+      <h2>Understand the vibe before you text</h2>
+      <p>Paste their profile and, if you have one, your conversation so far. HeartLens reads the signals and suggests interests, communication style, and opener angles that fit this person.</p>
+      <p class="fine">Estimates, not facts. Only paste what you'd be comfortable sharing, and leave out names or contact details you don't need.</p>
+    </section>
+
+    <form id="analyze-form" class="card" novalidate>
+      <label for="profile">
+        <span>Their profile</span>
+        <small>Bio, prompts, captions. Anything they wrote about themselves.</small>
+      </label>
+      <textarea id="profile" name="profile" rows="6" placeholder="e.g. Will make you pasta from scratch. Weekends are for trails and bad karaoke. Looking for someone who laughs at their own jokes."></textarea>
+
+      <label for="conversation">
+        <span>Your conversation so far <em>(optional)</em></span>
+        <small>Paste the chat. Mark who said what if it isn't obvious.</small>
+      </label>
+      <textarea id="conversation" name="conversation" rows="8" placeholder="Me: ...&#10;Them: ..."></textarea>
+
+      <label for="about">
+        <span>About you <em>(optional)</em></span>
+        <small>A line or two so the openers sound like you.</small>
+      </label>
+      <textarea id="about" name="about" rows="2" placeholder="e.g. I'm pretty dry and sarcastic, into climbing and cooking, not big on small talk."></textarea>
+
+      <div class="actions">
+        <button type="submit" id="submit">Analyze</button>
+        <span id="status" class="status" role="status" aria-live="polite"></span>
+      </div>
+      <p id="error" class="error" role="alert" hidden></p>
+    </form>
+
+    <section id="results" class="results" hidden aria-live="polite"></section>
+  </main>
+
+  <footer class="card footer">
+    <a href="/privacy">Privacy Policy</a> |
+    <a href="/terms">Terms of Service</a>
+  </footer>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>
