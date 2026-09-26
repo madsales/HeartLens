@@ -38,12 +38,25 @@ To work on the UI without spending API calls, `npm run dev` starts the server in
 
 See `.env.example`. Node 20+ can load it with `node --env-file=.env server.js`.
 
+## Android and iOS app
+
+`mobile/` holds the native app, built with Expo and React Native from one TypeScript codebase. It uses the same server, so run the server first, then:
+
+```bash
+cd mobile
+npm install
+npx expo start
+```
+
+Scan the QR code with Expo Go, or press `a` / `i` for an emulator. See [mobile/README.md](mobile/README.md) for store builds with EAS.
+
 ## How it works
 
 ```
 public/        static front end (index.html, app.js, styles.css, privacy, terms)
 server.js      tiny Node http server: serves public/ and POST /api/analyze
 lib/analyze.js prompt, response schema, and the Claude call
+mobile/        Expo / React Native app for Android and iOS
 ```
 
 `POST /api/analyze` takes `{ profile, conversation, about }` (all strings) and returns `{ ok, result, model }`. The Claude request uses structured outputs (a Zod schema via `output_config.format`) so the response is validated JSON, a cached system prompt, and Anthropic's server-side refusal fallback so a declined request is retried on an alternate model instead of failing. Inputs are capped (6k / 12k / 1.5k characters) and request bodies at 64 KB.
