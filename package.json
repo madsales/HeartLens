@@ -1,0 +1,19 @@
+{
+  "name": "heartlens",
+  "version": "0.1.0",
+  "description": "Decode the connection. Analyze a profile and conversation to estimate interests, communication style, and better opener angles.",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "HEARTLENS_MOCK=1 node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "zod": "^4.6.0"
+  }
+}
