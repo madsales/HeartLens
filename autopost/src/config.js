@@ -54,6 +54,16 @@ export function loadConfig({ envFile, overrides = {} } = {}) {
     failOpen: bool(e.FAIL_OPEN, true),
     duplicateWindowHours: int(e.DUPLICATE_WINDOW_HOURS, 72),
 
+    // OAuth "Connect account" flow
+    oauthCallbackPort: int(e.OAUTH_CALLBACK_PORT, 4311),
+    oauthRedirectUri: e.OAUTH_REDIRECT_URI || '',
+    oauthTimeoutMs: int(e.OAUTH_TIMEOUT_MS, 300000),
+    refreshTokens: bool(e.REFRESH_TOKENS, true),
+
+    // Buffer-style posting slots, e.g. "mon-fri@09:00,17:00; sat,sun@11:00".
+    // When set, these drive the schedule instead of SCHEDULE.
+    postingSlots: e.POSTING_SLOTS || '',
+
     // Dashboard
     port: int(e.PORT, 4310),
     host: e.HOST || '127.0.0.1',

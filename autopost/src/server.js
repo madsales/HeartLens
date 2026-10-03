@@ -7,7 +7,11 @@ import { statusReport, ADAPTERS } from './platforms/index.js';
 import { publishPost } from './publisher.js';
 import { nextFromPack, loadPack, materialise } from './content.js';
 import { describeCron } from './cron.js';
+import { describeSlots } from './slots.js';
 import { redact } from './logger.js';
+import { connect } from './oauth/flow.js';
+import { PROVIDERS, NON_OAUTH, getProvider } from './oauth/providers.js';
+import { applyVault, reapplyCredentials } from './credentials.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -55,8 +59,12 @@ async function readBody(req, limit = 1_000_000) {
   }
 }
 
-export function createApp({ config, store, logger, scheduler }) {
+export function createApp({ config, store, logger, scheduler, vault }) {
   const ctx = () => ({ config, store, logger });
+
+  // Connect flows run past the request that started them: the browser goes off
+  // to the provider and comes back to the callback port minutes later.
+  const inFlight = new Map();
 
   const authorised = (req) => {
     if (!config.dashboardToken) return true;
@@ -69,12 +77,30 @@ export function createApp({ config, store, logger, scheduler }) {
 
   const routes = {
     'GET /api/status': async () => {
-      const platforms = statusReport(config).map((p) => ({
-        ...p,
-        lastPostedAt: store.data.platformState[p.id]?.lastPostedAt || null,
-        successes: store.data.platformState[p.id]?.successes || 0,
-        failures: store.data.platformState[p.id]?.failures || 0,
-      }));
+      const platforms = statusReport(config).map((p) => {
+        const provider = getProvider(p.id);
+        const account = vault?.get(p.id) || null;
+        return {
+          ...p,
+          lastPostedAt: store.data.platformState[p.id]?.lastPostedAt || null,
+          successes: store.data.platformState[p.id]?.successes || 0,
+          failures: store.data.platformState[p.id]?.failures || 0,
+          // Enough for the UI to offer a Connect button -- never the token.
+          connectable: Boolean(provider),
+          needsReview: Boolean(provider?.needsReview),
+          appCredsSet: provider ? Boolean(process.env[provider.clientIdEnv] && process.env[provider.clientSecretEnv]) : false,
+          appCredsEnv: provider ? [provider.clientIdEnv, provider.clientSecretEnv] : [],
+          setup: provider?.setup || NON_OAUTH[p.id] || null,
+          connected: account
+            ? {
+                accountName: account.accountName || null,
+                expiresAt: account.expiresAt || null,
+                refreshable: Boolean(account.refreshToken),
+                connectedAt: account.connectedAt || null,
+              }
+            : null,
+        };
+      });
       let packInfo = { total: 0, cursor: store.data.cursor || 0 };
       try {
         const pack = loadPack();
@@ -91,7 +117,9 @@ export function createApp({ config, store, logger, scheduler }) {
         dryRun: config.dryRun,
         siteUrl: config.siteUrl,
         timezone: config.timezone,
-        schedule: describeCron(config.schedule, config.timezone),
+        schedule: config.postingSlots
+          ? { ...describeSlots(config.postingSlots, config.timezone), mode: 'slots', source: config.postingSlots }
+          : { ...describeCron(config.schedule, config.timezone), mode: 'cron' },
         scheduleEnabled: config.scheduleEnabled,
         scheduler: scheduler ? scheduler.describe() : null,
         readyCount: platforms.filter((p) => p.configured).length,
@@ -194,6 +222,108 @@ export function createApp({ config, store, logger, scheduler }) {
       return { ok: true, result: redact(result) };
     },
 
+    'GET /api/accounts': async () => ({
+      ok: true,
+      // list() deliberately returns metadata only, never a token.
+      accounts: vault ? vault.list() : [],
+      connectable: Object.values(PROVIDERS).map((p) => ({
+        id: p.id, label: p.label, needsReview: Boolean(p.needsReview),
+        docs: p.docs, setup: p.setup,
+        appCredsSet: Boolean(process.env[p.clientIdEnv] && process.env[p.clientSecretEnv]),
+        appCredsEnv: [p.clientIdEnv, p.clientSecretEnv],
+      })),
+      manual: NON_OAUTH,
+    }),
+
+    // Starts a connect flow and hands back the provider URL for the browser
+    // to open. The flow itself completes later, on the callback port.
+    'POST /api/connect': async (req) => {
+      if (!vault) return { status: 400, payload: { ok: false, error: 'No token vault in this process' } };
+      const body = await readBody(req);
+      const platform = String(body.platform || '').toLowerCase();
+      const provider = getProvider(platform);
+
+      if (!provider) {
+        return {
+          status: 400,
+          payload: {
+            ok: false,
+            error: NON_OAUTH[platform]
+              ? `${platform} does not use OAuth. ${NON_OAUTH[platform]}`
+              : `Unknown platform "${platform}"`,
+          },
+        };
+      }
+      if (inFlight.has(platform)) {
+        return { ok: true, authUrl: inFlight.get(platform).authUrl, resumed: true };
+      }
+
+      // Resolve as soon as the URL exists, rather than waiting for the whole
+      // round trip -- the browser needs it now.
+      let resolveUrl;
+      const urlReady = new Promise((r) => { resolveUrl = r; });
+
+      const flow = connect(platform, {
+        config, vault, logger,
+        openInBrowser: false,
+        onAuthUrl: async (authUrl) => { resolveUrl(authUrl); },
+      })
+        .then((saved) => {
+          // Make the new credentials live for this process straight away.
+          applyVault(config, vault);
+          logger.info(`Dashboard: ${platform} connected${saved.accountName ? ` as ${saved.accountName}` : ''}.`);
+          return saved;
+        })
+        .catch((err) => {
+          logger.error(`Dashboard: connecting ${platform} failed - ${err.message}`);
+          resolveUrl(null);
+          throw err;
+        })
+        .finally(() => inFlight.delete(platform));
+      // The flow is awaited by /api/connect/status; swallow here so an
+      // abandoned connect cannot crash the process.
+      flow.catch(() => {});
+
+      const authUrl = await urlReady;
+      if (!authUrl) {
+        try { await flow; } catch (err) {
+          return { status: 400, payload: { ok: false, error: err.message } };
+        }
+      }
+      inFlight.set(platform, { authUrl, startedAt: Date.now() });
+      return {
+        ok: true,
+        authUrl,
+        redirectUri: config.oauthRedirectUri || `http://127.0.0.1:${config.oauthCallbackPort}/callback`,
+        needsReview: Boolean(provider.needsReview),
+      };
+    },
+
+    'GET /api/connect/status': async (req, url) => {
+      const platform = String(url.searchParams.get('platform') || '').toLowerCase();
+      const account = vault?.get(platform);
+      return {
+        ok: true,
+        pending: inFlight.has(platform),
+        connected: Boolean(account?.accessToken),
+        accountName: account?.accountName || null,
+      };
+    },
+
+    'POST /api/disconnect': async (req) => {
+      if (!vault) return { status: 400, payload: { ok: false, error: 'No token vault in this process' } };
+      const body = await readBody(req);
+      const platform = String(body.platform || '').toLowerCase();
+      const removed = vault.remove(platform);
+      if (removed) {
+        // Rebuild from .env and re-apply, so this process stops using the
+        // revoked token immediately rather than at the next restart.
+        reapplyCredentials(config, vault);
+        logger.info(`Dashboard: ${platform} disconnected.`);
+      }
+      return { ok: removed, error: removed ? undefined : 'That platform was not connected' };
+    },
+
     'GET /api/platforms': async () => ({
       ok: true,
       platforms: ADAPTERS.map((a) => ({
@@ -241,8 +371,8 @@ export function createApp({ config, store, logger, scheduler }) {
   });
 }
 
-export function serve({ config, store, logger, scheduler }) {
-  const server = createApp({ config, store, logger, scheduler });
+export function serve({ config, store, logger, scheduler, vault }) {
+  const server = createApp({ config, store, logger, scheduler, vault });
   return new Promise((resolve) => {
     server.listen(config.port, config.host, () => {
       const base = `http://${config.host}:${config.port}`;

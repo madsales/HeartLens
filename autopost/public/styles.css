@@ -142,3 +142,34 @@ footer a { color: var(--accent); }
   body { padding: 20px 12px 60px; }
   h1 { font-size: 1.5rem; }
 }
+
+/* ---- connect controls ---------------------------------------------------- */
+
+.platform { position: relative; }
+.platform .row-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+
+button.connect {
+  font: inherit; font-size: 0.74rem; font-weight: 600; cursor: pointer;
+  padding: 4px 11px; border-radius: 999px;
+  color: #140d2e; background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  border: 0;
+}
+button.connect:hover { filter: brightness(1.08); }
+button.connect:disabled { opacity: 0.5; cursor: not-allowed; filter: none; }
+
+button.unlink {
+  font: inherit; font-size: 0.72rem; cursor: pointer; padding: 3px 10px;
+  color: var(--muted); background: transparent;
+  border: 1px solid var(--border); border-radius: 999px;
+}
+button.unlink:hover { color: var(--err); border-color: var(--err); }
+
+.platform .account { color: var(--ok); font-size: 0.76rem; font-weight: 600; }
+.platform .expiry { color: var(--muted); font-size: 0.72rem; }
+.platform .expiry.warn { color: var(--warn); }
+.platform .needs-review {
+  display: inline-block; font-size: 0.64rem; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--warn); border: 1px solid var(--warn); border-radius: 999px;
+  padding: 0 6px; margin-top: 6px;
+}
+.platform .setup-hint { color: var(--muted); font-size: 0.72rem; margin-top: 5px; line-height: 1.4; }

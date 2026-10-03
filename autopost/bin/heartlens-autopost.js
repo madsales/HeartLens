@@ -8,6 +8,10 @@ import { serve } from '../src/server.js';
 import { statusReport, resolveTargets, ADAPTERS } from '../src/platforms/index.js';
 import { nextFromPack, loadPack, materialise } from '../src/content.js';
 import { describeCron } from '../src/cron.js';
+import { describeSlots, nextSlots, parseSlots } from '../src/slots.js';
+import { prepareCredentials, reapplyCredentials, TokenVault } from '../src/credentials.js';
+import { connect } from '../src/oauth/flow.js';
+import { PROVIDERS, NON_OAUTH, getProvider } from '../src/oauth/providers.js';
 
 // Tiny flag parser: --key=value, --key value, --flag, and positional args.
 function parseArgs(argv) {
@@ -36,6 +40,9 @@ HeartLens Auto-Poster
 
 Commands
   setup                 Create .env from the template and print next steps
+  connect <platform>    Log in through the browser and store the token  (no API keys to paste)
+  accounts              Show connected accounts and when their tokens expire
+  disconnect <platform> Forget a connected account (--all for every one)
   doctor                Show every platform, what is wired up and what is missing
   postnow [text]        Post once, right now, to every ready platform  (the 1-click path)
   queue <text>          Add a post to the queue
@@ -57,10 +64,14 @@ Options
   --media a.png,b.jpg     Media paths or public https URLs
   --at "2026-10-04T09:00" Schedule time for \`queue\`
   --no-schedule           For \`serve\`: dashboard only, no scheduler
+  --all                   For \`disconnect\`: forget every connected account
+  --no-browser            For \`connect\`: print the URL instead of opening it
   --json                  Machine-readable output where it applies
   --env FILE              Use a different .env file
 
 Examples
+  heartlens-autopost connect x
+  heartlens-autopost accounts
   heartlens-autopost doctor
   heartlens-autopost postnow --dry-run
   heartlens-autopost postnow "Understand the vibe before you text." --live
@@ -85,7 +96,14 @@ async function main() {
   if (store.loadError) {
     logger.warn(`The store was unreadable and has been reset; the old file is at ${store.loadError.backup}`);
   }
-  const ctx = { config, store, logger };
+  // Connected accounts override .env, and anything near expiry is renewed
+  // before the command runs, so a post never fails on a stale token.
+  const needsCredentials = !['setup', 'help', 'next', 'pack', 'list'].includes(command);
+  const vault = needsCredentials
+    ? await prepareCredentials({ config, logger, refresh: command !== 'doctor' })
+    : new TokenVault(config.dataDir);
+
+  const ctx = { config, store, logger, vault };
 
   const only = list(flags.platforms);
   const buildPost = (text) => ({
@@ -101,10 +119,70 @@ async function main() {
   switch (command) {
     case 'setup': return await cmdSetup(config, logger);
 
+    case 'connect': {
+      const platform = (positional.shift() || '').toLowerCase();
+      if (!platform) {
+        printConnectable();
+        return 1;
+      }
+      if (NON_OAUTH[platform]) {
+        console.log(`\n  ${platform} does not use OAuth - there is nothing to connect.\n  ${NON_OAUTH[platform]}\n`);
+        return 0;
+      }
+      if (!getProvider(platform)) {
+        logger.error(`Unknown platform "${platform}".`);
+        printConnectable();
+        return 1;
+      }
+      await connect(platform, {
+        config, vault, logger, openInBrowser: !truthy(flags['no-browser']),
+      });
+      console.log('\n  Now run `doctor` to confirm, then `postnow --dry-run` to preview.\n');
+      return 0;
+    }
+
+    case 'accounts': {
+      const accounts = vault.list();
+      if (truthy(flags.json)) {
+        console.log(JSON.stringify(accounts, null, 2));
+        return 0;
+      }
+      console.log('\nConnected accounts\n');
+      if (!accounts.length) {
+        console.log('  (none yet)\n');
+        printConnectable();
+        return 0;
+      }
+      for (const a of accounts) {
+        const provider = getProvider(a.platform);
+        console.log(`  ${(provider?.label || a.platform).padEnd(28)} ${a.accountName || '(unnamed)'}`);
+        console.log(`  ${''.padEnd(28)} ${a.status}${a.refreshable ? '' : '  [no refresh token]'}`);
+        if (a.connectedAt) console.log(`  ${''.padEnd(28)} connected ${a.connectedAt.slice(0, 10)}`);
+        console.log('');
+      }
+      return 0;
+    }
+
+    case 'disconnect': {
+      if (truthy(flags.all)) {
+        vault.destroy();
+        logger.info('Every connected account has been forgotten.');
+        return 0;
+      }
+      const platform = (positional.shift() || '').toLowerCase();
+      if (!platform) { logger.error('Name a platform, or pass --all.'); return 1; }
+      const removed = vault.remove(platform);
+      if (removed) reapplyCredentials(config, vault);
+      logger.info(removed ? `${platform} disconnected.` : `${platform} was not connected.`);
+      return removed ? 0 : 1;
+    }
+
     case 'doctor': {
       const report = statusReport(config).map((p) => ({
         ...p,
         lastPostedAt: store.data.platformState[p.id]?.lastPostedAt || null,
+        connected: config.connected?.[p.id] || null,
+        connectable: Boolean(getProvider(p.id)),
       }));
       if (truthy(flags.json)) {
         console.log(JSON.stringify({ config: safeConfig(config), platforms: report }, null, 2));
@@ -193,6 +271,17 @@ async function main() {
     }
 
     case 'next': {
+      if (config.postingSlots) {
+        const info = describeSlots(config.postingSlots, config.timezone);
+        if (!info.valid) { logger.error(`POSTING_SLOTS is invalid: ${info.error}`); return 1; }
+        console.log(`\nPosting slots (${info.count}/week) in ${config.timezone}:`);
+        console.log(`  ${info.summary}\n`);
+        for (const d of nextSlots(parseSlots(config.postingSlots), Number(flags.count || 5), new Date(), config.timezone)) {
+          console.log(`  ${d.toISOString()}   (${d.toLocaleString('en-US', { timeZone: config.timezone })} ${config.timezone})`);
+        }
+        console.log('');
+        return 0;
+      }
       const info = describeCron(config.schedule, config.timezone);
       if (!info.valid) { logger.error(`SCHEDULE is invalid: ${info.error}`); return 1; }
       const scheduler = new Scheduler(ctx);
@@ -211,7 +300,8 @@ async function main() {
     case 'daemon': {
       preflight(config, logger);
       const scheduler = new Scheduler(ctx).start();
-      shutdownOn(() => scheduler.stop(), logger);
+      const refresher = startTokenRefresher({ config, vault, logger });
+      shutdownOn(() => { scheduler.stop(); clearInterval(refresher); }, logger);
       await new Promise(() => {}); // run until signalled
       return 0;
     }
@@ -222,8 +312,9 @@ async function main() {
       const scheduler = new Scheduler(ctx);
       if (wantSchedule) scheduler.start();
       else logger.info('Scheduler is off; the dashboard still posts on demand.');
-      const server = await serve({ ...ctx, scheduler });
-      shutdownOn(() => { scheduler.stop(); server.close(); }, logger);
+      const server = await serve({ ...ctx, scheduler, vault });
+      const refresher = startTokenRefresher({ config, vault, logger });
+      shutdownOn(() => { scheduler.stop(); clearInterval(refresher); server.close(); }, logger);
       await new Promise(() => {});
       return 0;
     }
@@ -263,15 +354,36 @@ function preflight(config, logger) {
   }
 }
 
+function printConnectable() {
+  console.log('\n  Connect with one browser login (OAuth):');
+  for (const p of Object.values(PROVIDERS)) {
+    console.log(`    ${p.id.padEnd(11)} ${p.label}${p.needsReview ? '  [needs platform app review]' : ''}`);
+  }
+  console.log('\n  No OAuth needed - set one value in .env:');
+  for (const [id, how] of Object.entries(NON_OAUTH)) {
+    console.log(`    ${id.padEnd(11)} ${how}`);
+  }
+  console.log('\n  Usage: heartlens-autopost connect <platform>\n');
+}
+
 function printDoctor(config, report, store) {
   const tick = (b) => (b ? '\u001b[32mOK  \u001b[0m' : '\u001b[33m--  \u001b[0m');
   console.log('\nHeartLens Auto-Poster - doctor\n');
   console.log(`  env file        ${config.envFile}`);
   console.log(`  data dir        ${config.dataDir}`);
   console.log(`  mode            ${config.dryRun ? 'DRY RUN (nothing is sent)' : 'LIVE'}`);
-  const cron = describeCron(config.schedule, config.timezone);
-  console.log(`  schedule        ${config.schedule} (${config.timezone})${cron.valid ? '' : `  <-- INVALID: ${cron.error}`}`);
-  if (cron.valid) console.log(`  next run        ${cron.next}`);
+  if (config.postingSlots) {
+    const slots = describeSlots(config.postingSlots, config.timezone);
+    console.log(`  slots           ${config.postingSlots} (${config.timezone})${slots.valid ? '' : `  <-- INVALID: ${slots.error}`}`);
+    if (slots.valid) {
+      console.log(`                  ${slots.count}/week - ${slots.summary}`);
+      console.log(`  next run        ${slots.next[0]}`);
+    }
+  } else {
+    const cron = describeCron(config.schedule, config.timezone);
+    console.log(`  schedule        ${config.schedule} (${config.timezone})${cron.valid ? '' : `  <-- INVALID: ${cron.error}`}`);
+    if (cron.valid) console.log(`  next run        ${cron.next}`);
+  }
   console.log(`  min gap         ${config.minGapMinutes} min per platform`);
   console.log(`  queue           ${store.queued().length} waiting`);
   console.log(`  enabled filter  ${config.enabledPlatforms.length ? config.enabledPlatforms.join(', ') : '(all ready platforms)'}`);
@@ -284,8 +396,17 @@ function printDoctor(config, report, store) {
     for (const p of rows) {
       const flag = p.verified ? '' : ' \u001b[33m(endpoint unverified - check docs)\u001b[0m';
       console.log(`    ${tick(p.configured)} ${p.label}${flag}`);
-      if (!p.configured) console.log(`         set: ${p.missing.join(', ')}`);
-      else if (p.lastPostedAt) console.log(`         last posted ${p.lastPostedAt}`);
+      if (p.connected) {
+        const who = p.connected.accountName ? ` as ${p.connected.accountName}` : '';
+        const exp = p.connected.expiresAt
+          ? `, token ${p.connected.refreshable ? 'auto-renews' : 'expires'} ${p.connected.expiresAt.slice(0, 10)}`
+          : '';
+        console.log(`         connected${who}${exp}`);
+      } else if (!p.configured) {
+        console.log(`         set: ${p.missing.join(', ')}`);
+        if (p.connectable) console.log(`         or just: heartlens-autopost connect ${p.id}`);
+      }
+      if (p.configured && p.lastPostedAt) console.log(`         last posted ${p.lastPostedAt}`);
     }
   }
 
@@ -293,6 +414,22 @@ function printDoctor(config, report, store) {
   console.log(`\n  ${readyCount} of ${report.length} platforms ready.`);
   if (readyCount <= 1) console.log('  Add credentials to .env, then run doctor again. See README.md for how to get each one.');
   console.log('');
+}
+
+// A long-running process must renew tokens on its own, or a 60-day Meta
+// token quietly lapses and every post starts failing. Checks hourly.
+function startTokenRefresher({ config, vault, logger }) {
+  if (!config.refreshTokens) return setInterval(() => {}, 1 << 30);
+  const tick = async () => {
+    try {
+      await prepareCredentials({ config, logger, refresh: true });
+    } catch (err) {
+      logger.warn(`Token refresh sweep failed: ${err.message}`);
+    }
+  };
+  const timer = setInterval(tick, 3600_000);
+  timer.unref?.();
+  return timer;
 }
 
 function shutdownOn(fn, logger) {

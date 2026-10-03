@@ -4,9 +4,9 @@ One click posts to every connected platform. A built-in scheduler keeps posting
 without you. Zero runtime dependencies — nothing to `npm install`.
 
 ```
-./install.sh          # 30 seconds, no downloads
-./autopost.sh doctor  # see what is wired up
-./autopost.sh serve   # dashboard + scheduler on http://127.0.0.1:4310
+./install.sh            # 30 seconds, no downloads
+./autopost.sh connect x # log in through the browser -- no API keys to paste
+./autopost.sh serve     # dashboard + scheduler on http://127.0.0.1:4310
 ```
 
 ---
@@ -44,6 +44,87 @@ Specific limitations worth knowing before you start:
 
 **The outbox means a run is never wasted.** With zero credentials configured,
 one click still produces a file per post, ready to paste anywhere.
+
+---
+
+## How this compares to Buffer and Hootsuite
+
+Those tools are five things stacked together. This package is four of them.
+
+| What they do | Here |
+| --- | --- |
+| **"Connect account" button** — OAuth login, no keys to copy | `connect <platform>`, or the Connect button in the dashboard |
+| **Token vault with silent refresh** — tokens expire, they renew them | `data/tokens.json`, refreshed before every run and hourly in the daemon |
+| **Posting slots** — "weekdays at 9 and 5", queue fills them | `POSTING_SLOTS=mon-fri@09:00,17:00` |
+| **Fan-out worker with retries** | The publisher, with backoff and a duplicate guard |
+| **Pre-approved platform partner status** | **Not possible to replicate.** See below. |
+
+### The one thing you cannot get for free
+
+Buffer and Hootsuite registered **once**, as companies, and passed app review
+with Meta, TikTok, LinkedIn and Pinterest. That single approved app posts on
+behalf of all their users. It is the reason connecting Instagram to Buffer
+takes ten seconds.
+
+Self-hosting means **you are the developer app**. The OAuth flow here is the
+same one Buffer uses, but the app behind it is yours, so the gated platforms
+want *your* app reviewed before they will publish from a normal account:
+
+- **Free and instant** — X, Bluesky, Mastodon, Telegram, Discord, Slack,
+  Reddit, Tumblr, YouTube. Register an app, click connect, post. Minutes.
+- **Free but gated** — Instagram, Facebook, Threads, LinkedIn, Pinterest,
+  TikTok. Register an app, then submit for review. No money, but a form, a
+  screencast of your app, and a wait. Until it clears, these work only on your
+  own developer account (or in TikTok's case, into your drafts).
+
+That is the honest trade: you pay nothing and own your data, and in exchange
+you do the app review Buffer already did. For the nine ungated platforms there
+is no catch at all.
+
+I am not confident about Buffer's or Hootsuite's current free-tier limits —
+they change often — so check their pricing pages rather than taking a number
+from me.
+
+### Connecting an account
+
+```bash
+./autopost.sh connect x          # opens your browser, stores the token
+./autopost.sh accounts           # who is connected, when tokens expire
+./autopost.sh disconnect x       # forget it
+```
+
+Each provider needs two values in `.env` first — your app's client id and
+secret, which you get by registering a developer app. `doctor` and the
+dashboard both name the exact variables and link to the right page.
+
+Register this redirect URI with every provider:
+
+```
+http://127.0.0.1:4311/callback
+```
+
+Some providers reject plain `http`, even on localhost. If yours does, register
+an https URL you control that forwards to that address and set
+`OAUTH_REDIRECT_URI` to match.
+
+Tokens land in `data/tokens.json` (created `0600`, never committed, never
+served over the dashboard API) and are refreshed automatically before each run
+and hourly while `serve` or `daemon` is up.
+
+### Posting slots, the Buffer way
+
+```ini
+POSTING_SLOTS=mon-fri@09:00,17:00; sat,sun@11:30
+TIMEZONE=Europe/London
+```
+
+Eleven slots a week. Queue posts with `queue` or the dashboard and each one
+takes the next free slot; when the queue runs dry the content pack rotates in.
+`POSTING_SLOTS` overrides `SCHEDULE` when both are set, and `./autopost.sh next`
+prints the upcoming slots.
+
+Day groups: `mon`..`sun`, ranges like `mon-fri` (they may wrap, `fri-mon`), or
+`everyday` / `weekdays` / `weekends`.
 
 ---
 
@@ -217,6 +298,10 @@ These exist because an auto-poster that misfires is worse than no auto-poster.
 - **Retries** with exponential backoff and jitter, but only for errors that are
   actually retryable — a 401 is not retried.
 - **Secrets are masked** in logs and never appear in an API response.
+- **`data/tokens.json` is written `0600`** and is gitignored. The dashboard
+  returns account names and expiry dates from it, never a token.
+- **OAuth uses PKCE and a `state` check**, compared in constant time, so a
+  stray callback cannot inject someone else's authorisation code.
 - **The dashboard binds to 127.0.0.1.** If you change `HOST`, set
   `DASHBOARD_TOKEN` too, or anyone who can reach the port can post as you.
 
@@ -227,6 +312,9 @@ These exist because an auto-poster that misfires is worse than no auto-poster.
 | Command | What it does |
 |---|---|
 | `setup` | Create `.env` from the template |
+| `connect <platform>` | Browser login, token stored for you |
+| `accounts` | Connected accounts and token expiry |
+| `disconnect <platform>` | Forget an account (`--all` for every one) |
 | `doctor` | Every platform, what is wired up, what is missing |
 | `postnow [text]` | Post once, now — the 1-click path |
 | `queue <text>` | Add to the queue (`--at` to schedule) |
@@ -258,19 +346,29 @@ required as `Authorization: Bearer <token>` or `?token=`.
 | `POST /api/queue/fill-from-pack` | Queue the pack, optionally spaced |
 | `POST /api/run-now` | Run one scheduled cycle |
 | `GET /api/platforms` | Adapter metadata and missing credentials |
+| `GET /api/accounts` | Connected accounts (metadata only, never a token) |
+| `POST /api/connect` | Start a connect flow; returns the provider URL to open |
+| `GET /api/connect/status` | Poll whether a connect finished |
+| `POST /api/disconnect` | Forget a connected account |
 
 ---
 
 ## Tests
 
 ```bash
-npm test     # 92 tests, about a second, no network
+npm test     # 131 tests, about two seconds, no network
 ```
 
-Covering the cron engine (including DST and timezone handling), the retry and
-duplicate logic, the store's corruption recovery, OAuth 1.0a signing, Bluesky's
-UTF-8 byte offsets, and the HTTP server end to end — including directory
-traversal, token auth, and that credentials never leak into a response.
+Covering the cron engine and posting slots (including DST and timezone
+handling), the retry and duplicate logic, the store's corruption recovery,
+OAuth 1.0a signing, Bluesky's UTF-8 byte offsets, and the HTTP server end to
+end — including directory traversal, token auth, and that credentials never
+leak into a response.
+
+The OAuth suite runs the whole connect flow against a mock provider: the auth
+redirect, the `state` CSRF check, real PKCE verification, the code exchange,
+and token refresh. The callback server is tested for state mismatch, provider
+errors and HTML escaping, and the vault is checked for file permissions.
 
 ---
 
@@ -316,6 +414,10 @@ Retries, dry-run previews, the duplicate guard and the dashboard come free.
 | Posts are not going out | `DRY_RUN` is still `true`, or everything is inside `MIN_GAP_MINUTES` |
 | Scheduler fires at the wrong hour | `TIMEZONE` is not set; `SCHEDULE` is read in that zone |
 | Dashboard is empty | Check `serve` is running and nothing else holds the port |
+| `connect` says redirect_uri mismatch | The URI registered with the provider must match `http://127.0.0.1:4311/callback` exactly, including the port |
+| `connect` hangs after login | Something else is on the callback port; change `OAUTH_CALLBACK_PORT` and re-register the URI |
+| A connected platform stops posting | Run `accounts`; a token with no refresh token has to be reconnected by hand |
+| Instagram/TikTok connect fine but nothing appears | App review not passed yet — until then they only publish on your own developer account |
 
 ---
 

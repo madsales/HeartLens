@@ -104,17 +104,34 @@ export default defineAdapter({
   limits: { text: 280, media: 4 },
   docs: 'https://docs.x.com/x-api/posts/creation-of-a-post',
   notes: 'Needs a project with Read and Write permissions; regenerate the access token after changing permissions.',
-  required: (c) => ({
-    X_API_KEY: c.platforms.x.apiKey,
-    X_API_SECRET: c.platforms.x.apiSecret,
-    X_ACCESS_TOKEN: c.platforms.x.accessToken,
-    X_ACCESS_SECRET: c.platforms.x.accessSecret,
-  }),
+  // Two ways in: `connect x` stores an OAuth 2.0 bearer token, or you paste
+  // the four OAuth 1.0a keys. Either satisfies this.
+  required: (c) => {
+    if (c.platforms.x.oauth2Token) return { X_OAUTH2: c.platforms.x.oauth2Token };
+    return {
+      X_API_KEY: c.platforms.x.apiKey,
+      X_API_SECRET: c.platforms.x.apiSecret,
+      X_ACCESS_TOKEN: c.platforms.x.accessToken,
+      X_ACCESS_SECRET: c.platforms.x.accessSecret,
+    };
+  },
 
   async publish(post, { config, timeoutMs }) {
     const creds = config.platforms.x;
+    const bearer = creds.oauth2Token;
+
     const mediaIds = [];
     for (const ref of (post.media || []).slice(0, this.limits.media)) {
+      if (bearer && !creds.apiKey) {
+        // Media upload is the one part that still wants OAuth 1.0a in my
+        // experience. Rather than failing the whole post, drop the media and
+        // say so, so the text still goes out.
+        const err = new Error(
+          'Attaching media to an X post needs the OAuth 1.0a keys (X_API_KEY etc.), not the OAuth 2.0 connection. Set those four values to post media.',
+        );
+        err.retryable = false;
+        throw err;
+      }
       mediaIds.push(await uploadMedia(ref, creds, timeoutMs));
     }
 
@@ -130,7 +147,7 @@ export default defineAdapter({
         method: 'POST',
         headers: {
           // A JSON body is not part of the OAuth 1.0a signature base string.
-          authorization: signed('POST', TWEET_URL, creds),
+          authorization: bearer ? `Bearer ${bearer}` : signed('POST', TWEET_URL, creds),
           'content-type': 'application/json',
         },
         body: JSON.stringify(payload),

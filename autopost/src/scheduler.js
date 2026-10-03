@@ -1,4 +1,5 @@
 import { parseCron, cronMatches, nextRun } from './cron.js';
+import { parseSlots, slotMatches, nextSlot } from './slots.js';
 import { publishPost } from './publisher.js';
 import { nextFromPack } from './content.js';
 
@@ -11,7 +12,14 @@ export class Scheduler {
     this.config = config;
     this.store = store;
     this.logger = logger;
-    this.cron = parseCron(config.schedule);
+    // POSTING_SLOTS (the Buffer model) wins over SCHEDULE when both are set.
+    if (config.postingSlots) {
+      this.slots = parseSlots(config.postingSlots);
+      this.mode = 'slots';
+    } else {
+      this.cron = parseCron(config.schedule);
+      this.mode = 'cron';
+    }
     this.lastFiredMinute = null;
     this.timer = null;
     this.running = false;
@@ -20,13 +28,24 @@ export class Scheduler {
   }
 
   nextRunAt(from = new Date()) {
-    return nextRun(this.cron, from, this.config.timezone);
+    return this.mode === 'slots'
+      ? nextSlot(this.slots, from, this.config.timezone)
+      : nextRun(this.cron, from, this.config.timezone);
+  }
+
+  // Is `date` a firing moment under whichever mode is active?
+  dueAt(date) {
+    return this.mode === 'slots'
+      ? slotMatches(this.slots, date, this.config.timezone)
+      : cronMatches(this.cron, date, this.config.timezone);
   }
 
   describe() {
     const next = this.nextRunAt();
     return {
-      schedule: this.cron.source,
+      mode: this.mode,
+      schedule: this.mode === 'slots' ? this.config.postingSlots : this.cron.source,
+      slotsPerWeek: this.mode === 'slots' ? this.slots.length : null,
       timezone: this.config.timezone,
       nextRunAt: next ? next.toISOString() : null,
       running: this.running,
@@ -40,8 +59,11 @@ export class Scheduler {
     this.running = true;
     const intervalMs = Math.max(5, this.config.tickSeconds) * 1000;
     const next = this.nextRunAt();
+    const label = this.mode === 'slots'
+      ? `${this.slots.length} slots/week: ${this.config.postingSlots}`
+      : this.cron.source;
     this.logger.info(
-      `Scheduler started: "${this.cron.source}" (${this.config.timezone}); next run ${next ? next.toISOString() : 'never'}${this.config.dryRun ? ' [DRY RUN]' : ''}`,
+      `Scheduler started (${this.mode}): "${label}" (${this.config.timezone}); next run ${next ? next.toISOString() : 'never'}${this.config.dryRun ? ' [DRY RUN]' : ''}`,
     );
     this.timer = setInterval(() => {
       this.tick().catch((err) => this.logger.error(`Scheduler tick failed: ${err.message}`));
@@ -70,8 +92,7 @@ export class Scheduler {
       .due(now)
       .filter((p) => p.scheduledAt && new Date(p.scheduledAt) <= now);
 
-    const cronDue =
-      cronMatches(this.cron, now, this.config.timezone) && this.lastFiredMinute !== minuteKey(now);
+    const cronDue = this.dueAt(now) && this.lastFiredMinute !== minuteKey(now);
 
     if (!cronDue && explicit.length === 0) return { fired: false };
 

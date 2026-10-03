@@ -141,3 +141,34 @@ test('an overlapping tick is skipped rather than running twice', async () => {
   assert.equal(result.reason, 'busy');
   h.cleanup();
 });
+
+test('POSTING_SLOTS switches the scheduler into slot mode', () => {
+  const h = harness({ POSTING_SLOTS: 'mon-fri@09:00,17:00' });
+  assert.equal(h.scheduler.mode, 'slots');
+  assert.equal(h.scheduler.slots.length, 10);
+  assert.equal(h.scheduler.describe().slotsPerWeek, 10);
+  h.cleanup();
+});
+
+test('slot mode fires on a slot and ignores other minutes', async () => {
+  const h = harness({ POSTING_SLOTS: 'mon@09:00' });
+  assert.equal((await h.scheduler.tick(new Date('2026-10-05T09:00:00Z'))).fired, true);
+  // Same minute must not fire twice.
+  assert.equal((await h.scheduler.tick(new Date('2026-10-05T09:00:30Z'))).fired, false);
+  assert.equal((await h.scheduler.tick(new Date('2026-10-05T10:00:00Z'))).fired, false);
+  h.cleanup();
+});
+
+test('POSTING_SLOTS takes precedence over SCHEDULE', () => {
+  const h = harness({ POSTING_SLOTS: 'mon@09:00', SCHEDULE: '0 3 * * *' });
+  assert.equal(h.scheduler.mode, 'slots');
+  assert.equal(h.scheduler.describe().schedule, 'mon@09:00');
+  h.cleanup();
+});
+
+test('an invalid POSTING_SLOTS fails at construction', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'heartlens-slot-bad-'));
+  const config = loadConfig({ envFile: join(dir, 'none.env'), overrides: { DATA_DIR: dir, POSTING_SLOTS: 'whenever' } });
+  assert.throws(() => new Scheduler({ config, store: new Store(dir), logger: silent }), /days@times/);
+  rmSync(dir, { recursive: true, force: true });
+});

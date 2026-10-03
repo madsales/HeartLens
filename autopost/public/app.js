@@ -30,11 +30,12 @@ function renderPlatforms() {
   host.innerHTML = '';
   for (const p of state.platforms) {
     const ready = p.configured;
-    const wrap = document.createElement('label');
+    const wrap = document.createElement('div');
     wrap.className = `platform${ready ? '' : ' off'}`;
 
     const box = document.createElement('input');
     box.type = 'checkbox';
+    box.id = `pick-${p.id}`;
     box.checked = ready && state.selected.has(p.id);
     box.disabled = !ready;
     box.addEventListener('change', () => {
@@ -45,21 +46,132 @@ function renderPlatforms() {
 
     const meta = document.createElement('div');
     meta.className = 'meta';
+
+    const name = document.createElement('label');
+    name.className = 'name';
+    name.htmlFor = box.id;
+    name.innerHTML = `${escapeHtml(p.label)}<span class="tier">${escapeHtml(p.tier)}</span>`;
+    meta.appendChild(name);
+
+    const state_ = document.createElement('div');
+    state_.className = `state${ready ? ' ready' : ''}`;
     const limit = p.limits && p.limits.text ? ` · ${p.limits.text} chars` : '';
-    meta.innerHTML =
-      `<div class="name">${escapeHtml(p.label)}<span class="tier">${escapeHtml(p.tier)}</span></div>` +
-      `<div class="state${ready ? ' ready' : ''}">${
-        ready
-          ? `ready${limit}${p.lastPostedAt ? ` · last ${new Date(p.lastPostedAt).toLocaleString()}` : ''}`
-          : (p.missing || []).length
-            ? `needs ${(p.missing).map((v) => `<code class="var">${escapeHtml(v)}</code>`).join(' ')}`
-            : 'needs setup'
-      }</div>`;
+
+    if (p.connected) {
+      // Connected through the browser: show who, and when the token lapses.
+      const days = p.connected.expiresAt
+        ? Math.round((new Date(p.connected.expiresAt) - Date.now()) / 86400000)
+        : null;
+      const expiry = days === null
+        ? 'no expiry'
+        : p.connected.refreshable
+          ? `auto-renews · ${days}d left`
+          : `expires in ${days}d — reconnect needed`;
+      state_.innerHTML =
+        `<span class="account">${escapeHtml(p.connected.accountName || 'connected')}</span>` +
+        `<div class="expiry${!p.connected.refreshable && days !== null && days < 14 ? ' warn' : ''}">${escapeHtml(expiry)}${limit}</div>`;
+    } else if (ready) {
+      state_.innerHTML = `ready${limit}${p.lastPostedAt ? ` · last ${new Date(p.lastPostedAt).toLocaleString()}` : ''}`;
+    } else if ((p.missing || []).length) {
+      state_.innerHTML = `needs ${p.missing.map((v) => `<code class="var">${escapeHtml(v)}</code>`).join(' ')}`;
+    } else {
+      state_.textContent = 'needs setup';
+    }
+    meta.appendChild(state_);
+
+    if (p.needsReview && !p.connected) {
+      const tag = document.createElement('div');
+      tag.className = 'needs-review';
+      tag.textContent = 'app review required';
+      meta.appendChild(tag);
+    }
+
+    // Connect / disconnect controls.
+    const actions = document.createElement('div');
+    actions.className = 'row-actions';
+
+    if (p.connectable && !p.connected) {
+      const btn = document.createElement('button');
+      btn.className = 'connect';
+      btn.type = 'button';
+      btn.textContent = 'Connect';
+      if (!p.appCredsSet) {
+        btn.disabled = true;
+        btn.title = `Set ${(p.appCredsEnv || []).join(' and ')} in .env first`;
+        const hint = document.createElement('div');
+        hint.className = 'setup-hint';
+        hint.innerHTML = `Set ${(p.appCredsEnv || []).map((v) => `<code class="var">${escapeHtml(v)}</code>`).join(' ')} in .env first.` +
+          (p.setup ? `<br>${escapeHtml(p.setup)}` : '');
+        meta.appendChild(hint);
+      } else {
+        btn.addEventListener('click', () => startConnect(p));
+      }
+      actions.appendChild(btn);
+    }
+
+    if (p.connected) {
+      const btn = document.createElement('button');
+      btn.className = 'unlink';
+      btn.type = 'button';
+      btn.textContent = 'Disconnect';
+      btn.addEventListener('click', async () => {
+        if (!confirm(`Disconnect ${p.label}? You can reconnect at any time.`)) return;
+        try {
+          await api('/api/disconnect', { method: 'POST', body: JSON.stringify({ platform: p.id }) });
+          log(`${p.label} disconnected.`);
+          refresh();
+        } catch (err) { log(`Disconnect failed: ${err.message}`); }
+      });
+      actions.appendChild(btn);
+    }
+
+    if (actions.children.length) meta.appendChild(actions);
 
     wrap.append(box, meta);
     host.appendChild(wrap);
   }
   el('platform-count').textContent = `${state.platforms.filter((p) => p.configured).length} ready of ${state.platforms.length}`;
+}
+
+// Opens the platform's own login in a new tab, then polls until the callback
+// lands. Same flow Buffer uses -- the difference is the app is yours.
+async function startConnect(platform) {
+  log(`Opening ${platform.label} login…`);
+  try {
+    const out = await api('/api/connect', { method: 'POST', body: JSON.stringify({ platform: platform.id }) });
+
+    // window.open returns null whenever 'noopener' is set -- that is the spec,
+    // not a blocked popup -- so the return value says nothing useful. Always
+    // offer the URL as a fallback and always start polling.
+    window.open(out.authUrl, '_blank', 'noopener');
+    showConnectFallback(platform, out.authUrl);
+    if (out.needsReview) {
+      log(`Note: ${platform.label} needs platform app review before posts from a normal account go live.`);
+    }
+
+    // Poll for up to five minutes; the user is logging in on another tab.
+    const deadline = Date.now() + 300000;
+    const poll = setInterval(async () => {
+      try {
+        const st = await api(`/api/connect/status?platform=${encodeURIComponent(platform.id)}`);
+        if (st.connected) {
+          clearInterval(poll);
+          clearConnectFallback();
+          log(`${platform.label} connected${st.accountName ? ` as ${st.accountName}` : ''}.`);
+          refresh();
+        } else if (!st.pending || Date.now() > deadline) {
+          clearInterval(poll);
+          clearConnectFallback();
+          log(`${platform.label} was not connected. Check the terminal for the reason.`);
+          refresh();
+        }
+      } catch {
+        clearInterval(poll);
+      }
+    }, 2000);
+  } catch (err) {
+    log(`Connect failed: ${err.message}`);
+  }
 }
 
 function renderQueue(posts) {
@@ -156,8 +268,11 @@ async function refresh() {
     el('mode-badge').textContent = status.dryRun ? 'dry run' : 'live';
     el('mode-badge').className = `badge ${status.dryRun ? 'dry' : 'live'}`;
     el('ready-badge').textContent = `${status.readyCount} platform${status.readyCount === 1 ? '' : 's'} ready`;
-    el('foot-schedule').textContent = status.schedule?.source || status.schedule?.error || '—';
-    el('foot-next').textContent = status.schedule?.next ? new Date(status.schedule.next).toLocaleString() : '—';
+    const sched = status.schedule || {};
+    el('foot-schedule').textContent = sched.source || sched.error || '—';
+    const nextRun = Array.isArray(sched.next) ? sched.next[0] : sched.next;
+    el('foot-next').textContent = nextRun ? new Date(nextRun).toLocaleString() : '—';
+    if (sched.mode === 'slots' && sched.summary) el('foot-schedule').title = sched.summary;
     if (!el('link').value) el('link').value = status.siteUrl || '';
 
     renderPlatforms();
@@ -203,6 +318,18 @@ el('big-post').addEventListener('click', async () => {
     updateHero();
   }
 });
+
+function showConnectFallback(platform, authUrl) {
+  const hint = el('hero-hint');
+  hint.innerHTML =
+    `Finishing the ${escapeHtml(platform.label)} login in the other tab… ` +
+    `<a href="${escapeHtml(authUrl)}" target="_blank" rel="noopener">open it again</a> if nothing happened.`;
+}
+
+function clearConnectFallback() {
+  el('hero-hint').textContent = '';
+  updateHero();
+}
 
 el('toggle-dry').addEventListener('click', () => {
   const current = state.dryRunOverride ?? state.status?.dryRun ?? true;
