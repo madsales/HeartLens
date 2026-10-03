@@ -1,0 +1,68 @@
+# Scheduled posting with no server at all: GitHub Actions runs it for you.
+# Copy to .github/workflows/autopost.yml and add the secrets you need under
+# Settings -> Secrets and variables -> Actions.
+#
+# Note: GitHub's scheduled triggers fire on a best-effort basis and can be
+# delayed by several minutes under load, so do not rely on exact timing.
+name: HeartLens auto-post
+
+on:
+  schedule:
+    - cron: '0 9,17 * * *'   # always UTC on GitHub
+  workflow_dispatch:
+    inputs:
+      text:
+        description: 'Post this text instead of the next pack item'
+        required: false
+      dry_run:
+        description: 'Preview only'
+        type: boolean
+        default: true
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Keeps the rotation cursor and duplicate guard across runs.
+      - name: Restore state
+        uses: actions/cache@v4
+        with:
+          path: autopost/data
+          key: heartlens-autopost-state-${{ github.run_id }}
+          restore-keys: heartlens-autopost-state-
+
+      - name: Post
+        working-directory: autopost
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+          SITE_URL: https://heartlens.app
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+          BLUESKY_IDENTIFIER: ${{ secrets.BLUESKY_IDENTIFIER }}
+          BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
+          MASTODON_BASE_URL: ${{ secrets.MASTODON_BASE_URL }}
+          MASTODON_ACCESS_TOKEN: ${{ secrets.MASTODON_ACCESS_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+        run: |
+          node bin/heartlens-autopost.js doctor
+          node bin/heartlens-autopost.js postnow ${{ inputs.text && format('"{0}"', inputs.text) || '' }}
+
+      - name: Upload outbox
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: outbox
+          path: autopost/data/outbox
+          if-no-files-found: ignore

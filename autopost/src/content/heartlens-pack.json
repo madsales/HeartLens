@@ -1,0 +1,75 @@
+{
+  "name": "HeartLens launch pack",
+  "version": 1,
+  "notes": "Copy deliberately stays within what HeartLens actually claims: probability-based estimates, not facts. Edit freely; {{site}} is replaced with SITE_URL at send time.",
+  "defaults": {
+    "link": "{{site}}",
+    "tags": ["HeartLens", "dating", "communication"]
+  },
+  "posts": [
+    {
+      "title": "Decode the connection",
+      "text": "Ever re-read a message five times trying to work out the tone?\n\nHeartLens reads the signals in a profile or conversation and estimates likely interests, communication style, and opener angles that might land.\n\nEstimates, not certainties — but a much better starting point than guessing.",
+      "variants": {
+        "x": "Ever re-read a message five times trying to work out the tone?\n\nHeartLens estimates likely interests, communication style, and opener angles from the signals already there.\n\nBetter than guessing.",
+        "linkedin": "Most dating advice is generic because it has to be — it knows nothing about the actual conversation.\n\nHeartLens takes a different angle: analyse the signals in a specific profile or chat, then estimate communication style and opener angles that fit that person.\n\nThe output is probabilistic, and we say so plainly. It is a starting point for a better message, not a script."
+      },
+      "tags": ["HeartLens", "dating", "firstimpressions"]
+    },
+    {
+      "title": "Understand the vibe before you text",
+      "text": "The hardest message is the first one.\n\nHeartLens looks at what is already in front of you — the profile, the chat so far — and suggests angles worth trying, with a read on how direct or playful to be.\n\nUnderstand the vibe before you text.",
+      "variants": {
+        "x": "The hardest message is the first one.\n\nHeartLens reads the profile and chat you already have, then suggests angles worth trying — and how direct to be.\n\nUnderstand the vibe before you text."
+      },
+      "tags": ["HeartLens", "dating", "opener"]
+    },
+    {
+      "title": "Why your opener is not landing",
+      "text": "Three things that quietly kill an opener:\n\n1. It could have been sent to anyone\n2. It asks a question with a one-word answer\n3. It mismatches their energy entirely\n\nHeartLens flags the mismatch before you hit send.",
+      "tags": ["HeartLens", "dating", "tips"]
+    },
+    {
+      "title": "Estimates, not fortune telling",
+      "text": "We should be straight about this: HeartLens does not read minds.\n\nIt estimates likely interests and communication style from the signals in the content you give it. Those are probabilities, and sometimes they are wrong.\n\nWhat it does well is stop you sending the same flat opener to everyone.",
+      "variants": {
+        "reddit": "We built HeartLens and want to be upfront about what it is and is not.\n\nIt is not mind reading. It analyses the signals in a profile or conversation you provide, and estimates likely interests, communication style, and opener angles. Those are probability-based estimates. Sometimes they will be wrong.\n\nWhat it is good at: stopping you sending the same generic opener to everyone, and giving you a read on tone before you commit to it.\n\nHappy to answer questions about the approach."
+      },
+      "tags": ["HeartLens", "transparency"]
+    },
+    {
+      "title": "Matching energy",
+      "text": "Matching energy is most of it.\n\nSend a three-paragraph message to someone writing in six words and the mismatch does the talking.\n\nHeartLens estimates the register someone is writing in, so your reply fits.",
+      "tags": ["HeartLens", "communication"]
+    },
+    {
+      "title": "For the overthinkers",
+      "text": "For everyone who drafts a message, deletes it, drafts it again, then sends 'hey':\n\nHeartLens gives you a second opinion before you send. Angles to try, tone to aim for, what the signals suggest they care about.\n\nStill your words. Just less guessing.",
+      "variants": {
+        "x": "For everyone who drafts a message, deletes it, drafts it again, then sends 'hey':\n\nHeartLens gives you a second opinion before you send.\n\nStill your words. Just less guessing."
+      },
+      "tags": ["HeartLens", "overthinking"]
+    },
+    {
+      "title": "What we do with your data",
+      "text": "Plainly: HeartLens analyses only the content you give it.\n\nNo scraping, no building profiles of people who never used the app. Results are estimates, and we label them that way.\n\nFull privacy policy: {{site}}/privacy",
+      "link": "{{site}}/privacy",
+      "tags": ["HeartLens", "privacy"]
+    },
+    {
+      "title": "Conversation went quiet",
+      "text": "A conversation going quiet usually is not about the last thing you said.\n\nIt is often that nothing in the thread gave them an easy way back in.\n\nHeartLens looks for the open loops worth picking up again.",
+      "tags": ["HeartLens", "dating", "conversation"]
+    },
+    {
+      "title": "Built for the moment before you send",
+      "text": "HeartLens is not a chatbot that talks for you.\n\nIt works in the ten seconds before you hit send — a read on the signals, a few angles, a sense of the tone that fits.\n\nThen you write it yourself.",
+      "tags": ["HeartLens", "product"]
+    },
+    {
+      "title": "Try it",
+      "text": "HeartLens is live.\n\nDecode the connection — understand the vibe before you text.\n\n{{site}}",
+      "tags": ["HeartLens", "launch"]
+    }
+  ]
+}

@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HeartLens Auto-Poster</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>HeartLens Auto-Poster</h1>
+    <span class="badge" id="mode-badge">checking…</span>
+    <span class="badge" id="ready-badge">—</span>
+  </header>
+  <p class="tagline">One click to every connected platform, plus a schedule that keeps posting without you.</p>
+
+  <section class="card hero">
+    <button id="big-post" type="button">
+      Post now to all connected platforms
+      <span class="sub" id="big-post-sub">Loading…</span>
+    </button>
+    <div class="actions">
+      <button class="secondary" id="run-schedule" type="button">Run the scheduled job now</button>
+      <button class="ghost" id="refresh" type="button">Refresh</button>
+      <button class="ghost" id="toggle-dry" type="button">Preview this post instead (dry run)</button>
+    </div>
+    <p class="hint" id="hero-hint"></p>
+  </section>
+
+  <section class="card">
+    <h2>Last result</h2>
+    <div id="results"><p class="empty">Nothing sent yet in this session.</p></div>
+  </section>
+
+  <section class="card">
+    <h2>Write a post <span class="count" id="compose-count"></span></h2>
+    <div class="field">
+      <label for="text">Body — leave empty to send the next item from the content pack</label>
+      <textarea id="text" rows="5" placeholder="Understand the vibe before you text…"></textarea>
+      <div class="chars" id="chars"></div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="title">Title (used by Reddit, YouTube, Pinterest)</label>
+        <input type="text" id="title" placeholder="Decode the connection" />
+      </div>
+      <div class="field">
+        <label for="link">Link</label>
+        <input type="text" id="link" placeholder="https://heartlens.app" />
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="media">Media — file path or public https URL, comma separated</label>
+        <input type="text" id="media" placeholder="https://heartlens.app/card.png" />
+      </div>
+      <div class="field">
+        <label for="when">Schedule for (leave empty to post immediately)</label>
+        <input type="datetime-local" id="when" />
+      </div>
+    </div>
+    <div class="actions">
+      <button class="secondary" id="queue-btn" type="button">Add to queue</button>
+      <button class="ghost" id="fill-pack" type="button">Queue the whole content pack</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Platforms <span class="count" id="platform-count"></span></h2>
+    <div class="platforms" id="platforms"></div>
+    <p class="hint">Unticked platforms are left out of the next send. Anything marked "needs …" has no credentials yet — see the README for how to get each one.</p>
+  </section>
+
+  <section class="card">
+    <h2>Queue <span class="count" id="queue-count"></span></h2>
+    <div id="queue"><p class="empty">Nothing queued.</p></div>
+  </section>
+
+  <section class="card">
+    <h2>Activity</h2>
+    <pre id="log">Waiting…</pre>
+  </section>
+
+  <footer>
+    HeartLens Auto-Poster · schedule <code id="foot-schedule">—</code> · next run <span id="foot-next">—</span>
+  </footer>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

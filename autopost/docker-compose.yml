@@ -1,0 +1,16 @@
+services:
+  autopost:
+    build: .
+    container_name: heartlens-autopost
+    restart: unless-stopped
+    ports:
+      # Bound to localhost. Change to "4310:4310" only together with
+      # DASHBOARD_TOKEN, or anyone who can reach the port can post as you.
+      - "127.0.0.1:4310:4310"
+    volumes:
+      - ./data:/data
+    environment:
+      TZ: ${TIMEZONE:-UTC}
+    env_file:
+      # Create this first:  cp .env.example .env
+      - .env

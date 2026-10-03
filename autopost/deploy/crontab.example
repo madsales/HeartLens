@@ -1,0 +1,10 @@
+# Alternative to the daemon: let cron do the scheduling instead.
+# Use this if you would rather not keep a process running.
+#
+#   crontab -e    then paste a line below (adjust the path)
+#
+# 09:00 and 17:00 daily:
+0 9,17 * * * cd /opt/heartlens/autopost && /usr/bin/node bin/heartlens-autopost.js run >> data/cron.log 2>&1
+#
+# With cron driving it, turn the internal scheduler off so the two do not
+# both fire:  SCHEDULE_ENABLED=false in .env

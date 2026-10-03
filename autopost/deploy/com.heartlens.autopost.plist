@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  macOS launchd agent: keeps the scheduler running after login.
+
+    cp deploy/com.heartlens.autopost.plist ~/Library/LaunchAgents/
+    # edit the two paths below to match your install, then:
+    launchctl load ~/Library/LaunchAgents/com.heartlens.autopost.plist
+    launchctl list | grep heartlens
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.heartlens.autopost</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/node</string>
+    <string>/Users/CHANGEME/HeartLens/autopost/bin/heartlens-autopost.js</string>
+    <string>serve</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/CHANGEME/HeartLens/autopost</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/heartlens-autopost.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/heartlens-autopost.err</string>
+</dict>
+</plist>

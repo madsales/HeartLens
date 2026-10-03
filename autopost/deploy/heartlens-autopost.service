@@ -1,0 +1,34 @@
+# systemd unit for always-on scheduling.
+#
+#   sudo cp deploy/heartlens-autopost.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now heartlens-autopost
+#   journalctl -u heartlens-autopost -f
+#
+# Adjust User and WorkingDirectory to match your install.
+
+[Unit]
+Description=HeartLens Auto-Poster (scheduler + dashboard)
+Documentation=https://github.com/madsales/HeartLens/tree/main/autopost
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=heartlens
+WorkingDirectory=/opt/heartlens/autopost
+ExecStart=/usr/bin/node /opt/heartlens/autopost/bin/heartlens-autopost.js serve
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# The service only needs to read its own directory and write ./data.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/heartlens/autopost/data
+
+[Install]
+WantedBy=multi-user.target

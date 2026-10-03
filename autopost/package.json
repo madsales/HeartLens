@@ -1,0 +1,36 @@
+{
+  "name": "heartlens-autopost",
+  "version": "1.0.0",
+  "description": "One-click and scheduled social publishing for HeartLens. Zero runtime dependencies.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "bin": {
+    "heartlens-autopost": "bin/heartlens-autopost.js"
+  },
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node bin/heartlens-autopost.js serve",
+    "daemon": "node bin/heartlens-autopost.js daemon",
+    "doctor": "node bin/heartlens-autopost.js doctor",
+    "postnow": "node bin/heartlens-autopost.js postnow",
+    "test": "node --test test/*.test.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "public",
+    "deploy",
+    ".env.example",
+    "README.md"
+  ],
+  "keywords": [
+    "heartlens",
+    "social",
+    "scheduler",
+    "autopost",
+    "cross-posting"
+  ]
+}
